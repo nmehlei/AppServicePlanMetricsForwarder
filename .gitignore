@@ -1,0 +1,27 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+## Azure Functions
+local.settings.json
+appsettings.Development.json
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Build
+publish/
+out/
+TestResults/

@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "Forwarder__AppServicePlanResourceId": "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Web/serverfarms/<plan-name>",
+    "Forwarder__OtlpEndpoint": "https://<your-openobserve-instance>/api/default/v1/metrics",
+    "Forwarder__OtlpHeaders": "Authorization=Basic <base64-credentials>",
+    "Forwarder__MetricNames": "CpuPercentage,MemoryPercentage,DiskQueueLength,HttpQueueLength,BytesReceived,BytesSent,TcpConnected,TcpTimeWait,TcpCloseWait"
+  }
+}
