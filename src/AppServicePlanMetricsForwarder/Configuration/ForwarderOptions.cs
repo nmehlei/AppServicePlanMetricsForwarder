@@ -6,7 +6,7 @@ public class ForwarderOptions
 
     public const string DefaultMetricNames =
         "CpuPercentage,MemoryPercentage,DiskQueueLength,HttpQueueLength," +
-        "BytesReceived,BytesSent,TcpConnected,TcpTimeWait,TcpCloseWait";
+        "BytesReceived,BytesSent,TcpEstablished,TcpTimeWait,TcpCloseWait";
 
     /// <summary>
     /// Full ARM resource ID of the App Service Plan.
