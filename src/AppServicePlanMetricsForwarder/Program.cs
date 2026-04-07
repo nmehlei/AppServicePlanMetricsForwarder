@@ -34,6 +34,7 @@ try
         .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim());
 
     Log.Logger = new LoggerConfiguration()
+        .Enrich.WithProperty("application", "AppServicePlanMetricsForwarder")
         .WriteTo.Console()
         .WriteTo.OpenTelemetry(options =>
         {
