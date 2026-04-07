@@ -4,4 +4,5 @@ public record MetricDataPoint(
     string MetricName,
     double Value,
     DateTimeOffset Timestamp,
-    string ResourceId);
+    string ResourceId,
+    string? SiteName = null);

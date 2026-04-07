@@ -40,4 +40,48 @@ public class MetricsCollectorTests
         Assert.Contains("BytesSent", names);
         Assert.Equal(9, names.Count);
     }
+
+    [Fact]
+    public void GetSiteMetricNamesList_ParsesCommaSeparatedNames()
+    {
+        var options = CreateOptions();
+        options.SiteMetricNames = "CpuTime, MemoryWorkingSet , Requests";
+
+        var names = options.GetSiteMetricNamesList();
+
+        Assert.Equal(3, names.Count);
+        Assert.Equal("CpuTime", names[0]);
+        Assert.Equal("MemoryWorkingSet", names[1]);
+        Assert.Equal("Requests", names[2]);
+    }
+
+    [Fact]
+    public void GetSiteMetricNamesList_DefaultMetrics_ContainsExpectedMetrics()
+    {
+        var options = CreateOptions();
+
+        var names = options.GetSiteMetricNamesList();
+
+        Assert.Contains("CpuTime", names);
+        Assert.Contains("MemoryWorkingSet", names);
+        Assert.Contains("AverageMemoryWorkingSet", names);
+        Assert.Contains("Requests", names);
+        Assert.Equal(4, names.Count);
+    }
+
+    [Fact]
+    public void CollectSiteMetrics_DefaultsToTrue()
+    {
+        var options = CreateOptions();
+
+        Assert.True(options.CollectSiteMetrics);
+    }
+
+    [Fact]
+    public void SiteDiscoveryIntervalMinutes_DefaultsToFive()
+    {
+        var options = CreateOptions();
+
+        Assert.Equal(5, options.SiteDiscoveryIntervalMinutes);
+    }
 }

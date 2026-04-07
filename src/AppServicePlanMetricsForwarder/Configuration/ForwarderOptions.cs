@@ -8,6 +8,9 @@ public class ForwarderOptions
         "CpuPercentage,MemoryPercentage,DiskQueueLength,HttpQueueLength," +
         "BytesReceived,BytesSent,TcpEstablished,TcpTimeWait,TcpCloseWait";
 
+    public const string DefaultSiteMetricNames =
+        "CpuTime,MemoryWorkingSet,AverageMemoryWorkingSet,Requests";
+
     /// <summary>
     /// Full ARM resource ID of the App Service Plan.
     /// e.g. /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Web/serverfarms/{name}
@@ -26,10 +29,28 @@ public class ForwarderOptions
     public string? OtlpHeaders { get; set; }
 
     /// <summary>
-    /// Comma-separated list of Azure Monitor metric names to collect.
+    /// Comma-separated list of Azure Monitor metric names to collect from the App Service Plan.
     /// </summary>
     public string MetricNames { get; set; } = DefaultMetricNames;
 
+    /// <summary>
+    /// Whether to collect per-site metrics from individual App Services within the plan.
+    /// </summary>
+    public bool CollectSiteMetrics { get; set; } = true;
+
+    /// <summary>
+    /// Comma-separated list of Azure Monitor metric names to collect from each App Service site.
+    /// </summary>
+    public string SiteMetricNames { get; set; } = DefaultSiteMetricNames;
+
+    /// <summary>
+    /// How often (in minutes) to re-discover App Service sites within the plan.
+    /// </summary>
+    public int SiteDiscoveryIntervalMinutes { get; set; } = 5;
+
     public IReadOnlyList<string> GetMetricNamesList() =>
         MetricNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public IReadOnlyList<string> GetSiteMetricNamesList() =>
+        SiteMetricNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

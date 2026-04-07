@@ -1,5 +1,6 @@
 using Azure.Identity;
 using Azure.Monitor.Query;
+using Azure.ResourceManager;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -53,7 +54,10 @@ try
     builder.Services.AddSingleton(new DefaultAzureCredential());
     builder.Services.AddSingleton(sp =>
         new MetricsQueryClient(sp.GetRequiredService<DefaultAzureCredential>()));
+    builder.Services.AddSingleton(sp =>
+        new ArmClient(sp.GetRequiredService<DefaultAzureCredential>()));
 
+    builder.Services.AddSingleton<ISiteDiscoveryService, SiteDiscoveryService>();
     builder.Services.AddSingleton<IMetricsCollector, MetricsCollector>();
     builder.Services.AddSingleton<IMetricsExporter, MetricsExporter>();
 

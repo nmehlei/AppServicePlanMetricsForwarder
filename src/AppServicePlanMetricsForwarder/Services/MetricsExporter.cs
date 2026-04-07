@@ -18,8 +18,11 @@ public class MetricsExporter : IMetricsExporter, IDisposable
     private readonly MeterProvider _meterProvider;
     private readonly ILogger<MetricsExporter> _logger;
 
-    // Holds the latest values to be reported by observable gauges
-    private readonly Dictionary<string, MetricDataPoint> _latestValues = new();
+    // Plan-level: keyed by MetricName
+    private readonly Dictionary<string, MetricDataPoint> _latestPlanValues = new();
+
+    // Site-level: keyed by (MetricName, SiteName)
+    private readonly Dictionary<(string MetricName, string SiteName), MetricDataPoint> _latestSiteValues = new();
 
     public MetricsExporter(IOptions<ForwarderOptions> options, ILogger<MetricsExporter> logger)
     {
@@ -51,14 +54,14 @@ public class MetricsExporter : IMetricsExporter, IDisposable
 
         _meterProvider = builder.Build()!;
 
-        // Create observable gauges for each configured metric
+        // Create observable gauges for plan-level metrics
         foreach (var metricName in config.GetMetricNamesList())
         {
             var name = $"azure.app_service_plan.{ToSnakeCase(metricName)}";
             var captured = metricName;
             _meter.CreateObservableGauge(name, () =>
             {
-                if (_latestValues.TryGetValue(captured, out var dp))
+                if (_latestPlanValues.TryGetValue(captured, out var dp))
                 {
                     return new Measurement<double>(dp.Value,
                         new KeyValuePair<string, object?>("azure.resource.id", dp.ResourceId));
@@ -66,13 +69,45 @@ public class MetricsExporter : IMetricsExporter, IDisposable
                 return new Measurement<double>();
             });
         }
+
+        // Create observable gauges for site-level metrics
+        // Each gauge emits one Measurement per site via the callback
+        if (config.CollectSiteMetrics)
+        {
+            foreach (var metricName in config.GetSiteMetricNamesList())
+            {
+                var name = $"azure.app_service.{ToSnakeCase(metricName)}";
+                var captured = metricName;
+                _meter.CreateObservableGauge(name, () =>
+                {
+                    var measurements = new List<Measurement<double>>();
+                    foreach (var kvp in _latestSiteValues)
+                    {
+                        if (kvp.Key.MetricName == captured)
+                        {
+                            measurements.Add(new Measurement<double>(kvp.Value.Value,
+                                new KeyValuePair<string, object?>("site_name", kvp.Key.SiteName),
+                                new KeyValuePair<string, object?>("azure.resource.id", kvp.Value.ResourceId)));
+                        }
+                    }
+                    return measurements;
+                });
+            }
+        }
     }
 
     public Task ExportAsync(IReadOnlyList<MetricDataPoint> dataPoints, CancellationToken cancellationToken = default)
     {
         foreach (var dp in dataPoints)
         {
-            _latestValues[dp.MetricName] = dp;
+            if (dp.SiteName is null)
+            {
+                _latestPlanValues[dp.MetricName] = dp;
+            }
+            else
+            {
+                _latestSiteValues[(dp.MetricName, dp.SiteName)] = dp;
+            }
         }
 
         _logger.LogInformation("Exporting {Count} metrics via OTLP", dataPoints.Count);
