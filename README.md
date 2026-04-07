@@ -9,16 +9,23 @@ Timer Trigger (1 min) → Azure Function (.NET 10) → Azure Monitor Metrics API
                                                   → OTLP/HTTP → OpenObserve
 ```
 
-## Metrics Collected
+## Metrics
 
-| Metric | Description |
-|--------|-------------|
-| `CpuPercentage` | CPU usage across instances |
-| `MemoryPercentage` | Memory usage across instances |
-| `DiskQueueLength` | Disk I/O pressure |
-| `HttpQueueLength` | Request queue depth |
-| `BytesReceived` / `BytesSent` | Network throughput |
-| `TcpConnected` / `TcpTimeWait` / `TcpCloseWait` | TCP connection states |
+The following metrics are collected from Azure Monitor and pushed as OTel gauges via OTLP/HTTP:
+
+| Azure Monitor Name | OTel Metric Name | Description |
+|--------------------|-------------------|-------------|
+| `CpuPercentage` | `azure.app_service_plan.cpu_percentage` | CPU usage across instances |
+| `MemoryPercentage` | `azure.app_service_plan.memory_percentage` | Memory usage across instances |
+| `DiskQueueLength` | `azure.app_service_plan.disk_queue_length` | Disk I/O pressure |
+| `HttpQueueLength` | `azure.app_service_plan.http_queue_length` | Request queue depth |
+| `BytesReceived` | `azure.app_service_plan.bytes_received` | Inbound network throughput |
+| `BytesSent` | `azure.app_service_plan.bytes_sent` | Outbound network throughput |
+| `TcpConnected` | `azure.app_service_plan.tcp_connected` | Active TCP connections |
+| `TcpTimeWait` | `azure.app_service_plan.tcp_time_wait` | TCP connections in TIME_WAIT |
+| `TcpCloseWait` | `azure.app_service_plan.tcp_close_wait` | TCP connections in CLOSE_WAIT |
+
+All metrics include the resource attribute `azure.resource.id` set to the monitored App Service Plan's ARM resource ID. The metric list is configurable via `Forwarder__MetricNames`.
 
 ## Configuration
 
