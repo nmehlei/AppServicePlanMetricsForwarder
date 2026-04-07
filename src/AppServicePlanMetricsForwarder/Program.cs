@@ -25,9 +25,7 @@ try
     var otlpEndpoint = builder.Configuration[$"{ForwarderOptions.SectionName}:OtlpEndpoint"] ?? "";
     var otlpHeadersRaw = builder.Configuration[$"{ForwarderOptions.SectionName}:OtlpHeaders"] ?? "";
 
-    var logsEndpoint = otlpEndpoint.EndsWith("/v1/metrics")
-        ? otlpEndpoint[..^"/v1/metrics".Length] + "/v1/logs"
-        : otlpEndpoint;
+    var logsEndpoint = otlpEndpoint.TrimEnd('/') + "/v1/logs";
 
     var otlpHeaders = otlpHeadersRaw
         .Split(',', StringSplitOptions.RemoveEmptyEntries)
