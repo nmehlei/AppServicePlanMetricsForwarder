@@ -40,7 +40,7 @@ public class MetricsExporter : IMetricsExporter, IDisposable
             .AddMeter(MeterName)
             .AddOtlpExporter(otlp =>
             {
-                otlp.Endpoint = new Uri(config.OtlpEndpoint);
+                otlp.Endpoint = new Uri(config.OtlpEndpoint.TrimEnd('/') + "/v1/metrics");
                 otlp.Protocol = OtlpExportProtocol.HttpProtobuf;
 
                 if (!string.IsNullOrEmpty(config.OtlpHeaders))
@@ -78,7 +78,8 @@ public class MetricsExporter : IMetricsExporter, IDisposable
         _logger.LogInformation("Exporting {Count} metrics via OTLP", dataPoints.Count);
 
         // Force a collect + export cycle
-        _meterProvider.ForceFlush();
+        if (!_meterProvider.ForceFlush())
+            _logger.LogWarning("OTLP export did not complete successfully — metrics may not have been delivered");
 
         return Task.CompletedTask;
     }
