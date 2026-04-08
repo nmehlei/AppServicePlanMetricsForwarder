@@ -57,6 +57,7 @@ try
     builder.Services.AddSingleton(sp =>
         new ArmClient(sp.GetRequiredService<DefaultAzureCredential>()));
 
+    builder.Services.AddSingleton<IAzureMetricsClient, AzureMetricsClient>();
     builder.Services.AddSingleton<ISiteDiscoveryService, SiteDiscoveryService>();
     builder.Services.AddSingleton<IMetricsCollector, MetricsCollector>();
     builder.Services.AddSingleton<IMetricsExporter, MetricsExporter>();

@@ -8,7 +8,7 @@ using AppServicePlanMetricsForwarder.Models;
 namespace AppServicePlanMetricsForwarder.Services;
 
 public class MetricsCollector(
-    MetricsQueryClient metricsQueryClient,
+    IAzureMetricsClient metricsClient,
     ISiteDiscoveryService siteDiscoveryService,
     IOptions<ForwarderOptions> options,
     ILogger<MetricsCollector> logger) : IMetricsCollector
@@ -38,28 +38,19 @@ public class MetricsCollector(
     private async Task<List<MetricDataPoint>> CollectPlanMetricsAsync(
         ForwarderOptions config, CancellationToken cancellationToken)
     {
-        var metricNames = config.GetMetricNamesList()
-            .Where(m => _knownInvalidPlanMetrics?.Contains(m) != true)
-            .ToList();
+        var metrics = MetricCatalog.ResolvePlanMetrics(config.GetMetricNamesList())
+            .Where(m => _knownInvalidPlanMetrics?.Contains(m.Key) != true)
+            .ToDictionary(m => m.Key, m => m.Value, StringComparer.OrdinalIgnoreCase);
 
-        logger.LogInformation("Querying {Count} plan metrics for {ResourceId}", metricNames.Count, config.AppServicePlanResourceId);
-
-        var queryOptions = new MetricsQueryOptions
-        {
-            Granularity = TimeSpan.FromMinutes(1),
-            TimeRange = new QueryTimeRange(TimeSpan.FromMinutes(2)),
-            Aggregations = { MetricAggregationType.Average }
-        };
+        logger.LogInformation("Querying {Count} plan metrics for {ResourceId}", metrics.Count, config.AppServicePlanResourceId);
 
         try
         {
-            var response = await metricsQueryClient.QueryResourceAsync(
+            return await QueryMetricGroupsAsync(
                 config.AppServicePlanResourceId,
-                metricNames,
-                queryOptions,
+                siteName: null,
+                metrics,
                 cancellationToken);
-
-            return ExtractDataPoints(response.Value.Metrics, config.AppServicePlanResourceId, siteName: null);
         }
         catch (Exception ex)
         {
@@ -68,23 +59,23 @@ public class MetricsCollector(
 
         // Fall back to individual queries so one invalid metric doesn't block the rest
         var fallbackDataPoints = new List<MetricDataPoint>();
-        foreach (var metricName in metricNames)
+        foreach (var metric in metrics)
         {
             try
             {
-                var response = await metricsQueryClient.QueryResourceAsync(
+                var response = await metricsClient.QueryResourceAsync(
                     config.AppServicePlanResourceId,
-                    [metricName],
-                    queryOptions,
+                    [metric.Key],
+                    metric.Value,
                     cancellationToken);
 
-                fallbackDataPoints.AddRange(ExtractDataPoints(response.Value.Metrics, config.AppServicePlanResourceId, siteName: null));
+                fallbackDataPoints.AddRange(ExtractDataPoints(response, config.AppServicePlanResourceId, siteName: null, metrics));
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to query plan metric {MetricName}, excluding from future queries", metricName);
+                logger.LogWarning(ex, "Failed to query plan metric {MetricName}, excluding from future queries", metric.Key);
                 _knownInvalidPlanMetrics ??= [];
-                _knownInvalidPlanMetrics.Add(metricName);
+                _knownInvalidPlanMetrics.Add(metric.Key);
             }
         }
 
@@ -95,36 +86,31 @@ public class MetricsCollector(
         ForwarderOptions config, CancellationToken cancellationToken)
     {
         var sites = await siteDiscoveryService.GetSitesAsync(cancellationToken);
-        var siteMetricNames = config.GetSiteMetricNamesList()
-            .Where(m => _knownInvalidSiteMetrics?.Contains(m) != true)
-            .ToList();
+        var siteMetrics = MetricCatalog.ResolveSiteMetrics(config.GetSiteMetricNamesList())
+            .Where(m => _knownInvalidSiteMetrics?.Contains(m.Key) != true)
+            .ToDictionary(m => m.Key, m => m.Value, StringComparer.OrdinalIgnoreCase);
 
-        logger.LogInformation("Querying {MetricCount} metrics for {SiteCount} sites", siteMetricNames.Count, sites.Count);
+        logger.LogInformation("Querying {MetricCount} metrics for {SiteCount} sites", siteMetrics.Count, sites.Count);
 
-        var tasks = sites.Select(site => QuerySiteMetricsAsync(site, siteMetricNames, cancellationToken));
+        var tasks = sites.Select(site => QuerySiteMetricsAsync(site, siteMetrics, cancellationToken));
         var results = await Task.WhenAll(tasks);
 
         return results.SelectMany(r => r).ToList();
     }
 
     private async Task<List<MetricDataPoint>> QuerySiteMetricsAsync(
-        DiscoveredSite site, List<string> metricNames, CancellationToken cancellationToken)
+        DiscoveredSite site,
+        IReadOnlyDictionary<string, MetricAggregationType> metrics,
+        CancellationToken cancellationToken)
     {
         await s_throttle.WaitAsync(cancellationToken);
         try
         {
-            var response = await metricsQueryClient.QueryResourceAsync(
+            return await QueryMetricGroupsAsync(
                 site.ResourceId,
-                metricNames,
-                new MetricsQueryOptions
-                {
-                    Granularity = TimeSpan.FromMinutes(1),
-                    TimeRange = new QueryTimeRange(TimeSpan.FromMinutes(2)),
-                    Aggregations = { MetricAggregationType.Average }
-                },
+                site.Name,
+                metrics,
                 cancellationToken);
-
-            return ExtractDataPoints(response.Value.Metrics, site.ResourceId, site.Name);
         }
         catch (Azure.RequestFailedException ex) when (ex.Status == 400)
         {
@@ -132,28 +118,23 @@ public class MetricsCollector(
             logger.LogWarning(ex, "Batch query failed for site {SiteName}, falling back to per-metric queries", site.Name);
 
             var fallback = new List<MetricDataPoint>();
-            foreach (var metricName in metricNames)
+            foreach (var metric in metrics)
             {
                 try
                 {
-                    var response = await metricsQueryClient.QueryResourceAsync(
+                    var response = await metricsClient.QueryResourceAsync(
                         site.ResourceId,
-                        [metricName],
-                        new MetricsQueryOptions
-                        {
-                            Granularity = TimeSpan.FromMinutes(1),
-                            TimeRange = new QueryTimeRange(TimeSpan.FromMinutes(2)),
-                            Aggregations = { MetricAggregationType.Average }
-                        },
+                        [metric.Key],
+                        metric.Value,
                         cancellationToken);
 
-                    fallback.AddRange(ExtractDataPoints(response.Value.Metrics, site.ResourceId, site.Name));
+                    fallback.AddRange(ExtractDataPoints(response, site.ResourceId, site.Name, metrics));
                 }
                 catch (Exception innerEx)
                 {
-                    logger.LogWarning(innerEx, "Failed to query site metric {MetricName} for {SiteName}, excluding from future queries", metricName, site.Name);
+                    logger.LogWarning(innerEx, "Failed to query site metric {MetricName} for {SiteName}, excluding from future queries", metric.Key, site.Name);
                     _knownInvalidSiteMetrics ??= [];
-                    _knownInvalidSiteMetrics.Add(metricName);
+                    _knownInvalidSiteMetrics.Add(metric.Key);
                 }
             }
             return fallback;
@@ -169,31 +150,78 @@ public class MetricsCollector(
         }
     }
 
+    private async Task<List<MetricDataPoint>> QueryMetricGroupsAsync(
+        string resourceId,
+        string? siteName,
+        IReadOnlyDictionary<string, MetricAggregationType> metrics,
+        CancellationToken cancellationToken)
+    {
+        var dataPoints = new List<MetricDataPoint>();
+
+        foreach (var group in metrics.GroupBy(m => m.Value))
+        {
+            var metricNames = group.Select(m => m.Key).ToList();
+            var response = await metricsClient.QueryResourceAsync(
+                resourceId,
+                metricNames,
+                group.Key,
+                cancellationToken);
+
+            dataPoints.AddRange(ExtractDataPoints(response, resourceId, siteName, metrics));
+        }
+
+        return dataPoints;
+    }
+
     private List<MetricDataPoint> ExtractDataPoints(
-        IReadOnlyList<MetricResult> metrics, string resourceId, string? siteName)
+        IReadOnlyList<CollectedMetricSeries> metrics,
+        string resourceId,
+        string? siteName,
+        IReadOnlyDictionary<string, MetricAggregationType> aggregations)
     {
         var dataPoints = new List<MetricDataPoint>();
         foreach (var metric in metrics)
         {
-            var latestValue = metric.TimeSeries
-                .SelectMany(ts => ts.Values)
-                .Where(v => v.Average.HasValue)
-                .OrderByDescending(v => v.TimeStamp)
+            if (!aggregations.TryGetValue(metric.MetricName, out var aggregation))
+            {
+                logger.LogDebug("Skipping uncataloged metric {MetricName} on {ResourceId}", metric.MetricName, resourceId);
+                continue;
+            }
+
+            var latestValue = metric.Values
+                .Select(v => new
+                {
+                    v.Timestamp,
+                    Value = GetValueForAggregation(v, aggregation)
+                })
+                .Where(v => v.Value.HasValue)
+                .OrderByDescending(v => v.Timestamp)
                 .FirstOrDefault();
 
             if (latestValue is null)
             {
-                logger.LogDebug("No data for metric {MetricName} on {ResourceId}", metric.Name, resourceId);
+                logger.LogDebug("No {Aggregation} data for metric {MetricName} on {ResourceId}", aggregation, metric.MetricName, resourceId);
                 continue;
             }
 
             dataPoints.Add(new MetricDataPoint(
-                MetricName: metric.Name,
-                Value: latestValue.Average!.Value,
-                Timestamp: latestValue.TimeStamp,
+                MetricName: metric.MetricName,
+                Value: latestValue.Value!.Value,
+                Timestamp: latestValue.Timestamp,
                 ResourceId: resourceId,
                 SiteName: siteName));
         }
         return dataPoints;
     }
+
+    private static double? GetValueForAggregation(CollectedMetricValue value, MetricAggregationType aggregation) =>
+        aggregation switch
+        {
+            MetricAggregationType.Average => value.Average,
+            MetricAggregationType.Count => value.Count,
+            MetricAggregationType.Maximum => value.Maximum,
+            MetricAggregationType.Minimum => value.Minimum,
+            MetricAggregationType.Total => value.Total,
+            _ => value.Average
+        };
 }

@@ -9,7 +9,9 @@ public class ForwarderOptions
         "BytesReceived,BytesSent,TcpEstablished,TcpTimeWait,TcpCloseWait";
 
     public const string DefaultSiteMetricNames =
-        "CpuTime,MemoryWorkingSet,AverageMemoryWorkingSet,Requests";
+        "CpuTime,MemoryWorkingSet,AverageMemoryWorkingSet,Requests," +
+        "BytesReceived,BytesSent,Http2xx,Http4xx,Http5xx,HttpResponseTime," +
+        "AppConnections,PrivateBytes,RequestsInApplicationQueue,Threads,Handles";
 
     /// <summary>
     /// Full ARM resource ID of the App Service Plan.

@@ -62,11 +62,14 @@ public class MetricsCollectorTests
 
         var names = options.GetSiteMetricNamesList();
 
+        Assert.Contains("AppConnections", names);
         Assert.Contains("CpuTime", names);
         Assert.Contains("MemoryWorkingSet", names);
         Assert.Contains("AverageMemoryWorkingSet", names);
         Assert.Contains("Requests", names);
-        Assert.Equal(4, names.Count);
+        Assert.Contains("Http5xx", names);
+        Assert.Contains("HttpResponseTime", names);
+        Assert.Equal(15, names.Count);
     }
 
     [Fact]
