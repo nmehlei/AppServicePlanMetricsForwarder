@@ -50,6 +50,14 @@ public class ForwarderOptions
     /// </summary>
     public int SiteDiscoveryIntervalMinutes { get; set; } = 5;
 
+    /// <summary>
+    /// When true, additionally exports the App Service Plan as an OpenTelemetry "host"
+    /// (host.name / host.id resource attributes + system.* semantic metric aliases) so that
+    /// backends like SigNoz surface the ASP in their Infrastructure → Hosts view.
+    /// Semantically this treats the ASP as a host — see README for the tradeoff. Off by default.
+    /// </summary>
+    public bool EmitAspAsHost { get; set; } = false;
+
     public IReadOnlyList<string> GetMetricNamesList() =>
         MetricNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 

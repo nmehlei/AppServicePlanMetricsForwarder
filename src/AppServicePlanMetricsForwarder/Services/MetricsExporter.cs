@@ -24,6 +24,41 @@ public class MetricsExporter : IMetricsExporter, IDisposable
     // Site-level: keyed by (MetricName, SiteName)
     private readonly Dictionary<(string MetricName, string SiteName), MetricDataPoint> _latestSiteValues = new();
 
+    // Maps an Azure Monitor plan metric to a host-semantic alias. Scale converts units
+    // (e.g. 0-100 percent → 0-1 ratio). Multiple sources may share a destination name;
+    // in that case each contributes one Measurement with its own attribute set.
+    private readonly record struct HostAlias(string DestName, double Scale, KeyValuePair<string, object?>[] Attrs);
+
+    private static readonly Dictionary<string, HostAlias> HostAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["CpuPercentage"] = new("system.cpu.utilization", 0.01,
+            new[] { new KeyValuePair<string, object?>("state", "used") }),
+        ["MemoryPercentage"] = new("system.memory.utilization", 0.01,
+            new[] { new KeyValuePair<string, object?>("state", "used") }),
+        ["BytesReceived"] = new("system.network.io", 1.0,
+            new[] { new KeyValuePair<string, object?>("direction", "receive") }),
+        ["BytesSent"] = new("system.network.io", 1.0,
+            new[] { new KeyValuePair<string, object?>("direction", "transmit") }),
+        ["TcpEstablished"] = new("system.network.connections", 1.0,
+            new[]
+            {
+                new KeyValuePair<string, object?>("state", "established"),
+                new KeyValuePair<string, object?>("protocol", "tcp"),
+            }),
+        ["TcpTimeWait"] = new("system.network.connections", 1.0,
+            new[]
+            {
+                new KeyValuePair<string, object?>("state", "time_wait"),
+                new KeyValuePair<string, object?>("protocol", "tcp"),
+            }),
+        ["TcpCloseWait"] = new("system.network.connections", 1.0,
+            new[]
+            {
+                new KeyValuePair<string, object?>("state", "close_wait"),
+                new KeyValuePair<string, object?>("protocol", "tcp"),
+            }),
+    };
+
     public MetricsExporter(IOptions<ForwarderOptions> options, ILogger<MetricsExporter> logger)
     {
         _logger = logger;
@@ -31,12 +66,24 @@ public class MetricsExporter : IMetricsExporter, IDisposable
 
         var config = options.Value;
 
+        var resourceAttrs = new List<KeyValuePair<string, object>>
+        {
+            new("azure.resource.id", config.AppServicePlanResourceId),
+        };
+
+        if (config.EmitAspAsHost)
+        {
+            var hostName = ExtractAspName(config.AppServicePlanResourceId);
+            resourceAttrs.Add(new("host.name", hostName));
+            resourceAttrs.Add(new("host.id", config.AppServicePlanResourceId));
+            resourceAttrs.Add(new("cloud.provider", "azure"));
+            resourceAttrs.Add(new("cloud.platform", "azure_app_service"));
+            resourceAttrs.Add(new("cloud.resource_id", config.AppServicePlanResourceId));
+        }
+
         var resourceBuilder = ResourceBuilder.CreateDefault()
             .AddService(serviceName: MeterName)
-            .AddAttributes(new KeyValuePair<string, object>[]
-            {
-                new("azure.resource.id", config.AppServicePlanResourceId),
-            });
+            .AddAttributes(resourceAttrs);
 
         var builder = Sdk.CreateMeterProviderBuilder()
             .SetResourceBuilder(resourceBuilder)
@@ -68,6 +115,34 @@ public class MetricsExporter : IMetricsExporter, IDisposable
                 }
                 return new Measurement<double>();
             });
+        }
+
+        // Dual-emit plan metrics under OTel host semantic-convention names so backends
+        // like SigNoz render the ASP in their Infrastructure → Hosts view.
+        if (config.EmitAspAsHost)
+        {
+            var enabled = config.GetMetricNamesList()
+                .Where(HostAliases.ContainsKey)
+                .Select(m => (Source: m, Alias: HostAliases[m]))
+                .ToList();
+
+            foreach (var group in enabled.GroupBy(x => x.Alias.DestName))
+            {
+                var destName = group.Key;
+                var sources = group.ToArray();
+                _meter.CreateObservableGauge(destName, () =>
+                {
+                    var measurements = new List<Measurement<double>>(sources.Length);
+                    foreach (var (source, alias) in sources)
+                    {
+                        if (_latestPlanValues.TryGetValue(source, out var dp))
+                        {
+                            measurements.Add(new Measurement<double>(dp.Value * alias.Scale, alias.Attrs));
+                        }
+                    }
+                    return measurements;
+                });
+            }
         }
 
         // Create observable gauges for site-level metrics
@@ -130,5 +205,15 @@ public class MetricsExporter : IMetricsExporter, IDisposable
         return string.Concat(
             input.Select((c, i) =>
                 i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
+    }
+
+    internal static string ExtractAspName(string resourceId)
+    {
+        const string marker = "/serverfarms/";
+        var idx = resourceId.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return "unknown-asp";
+        var name = resourceId[(idx + marker.Length)..];
+        var slash = name.IndexOf('/');
+        return slash < 0 ? name : name[..slash];
     }
 }
