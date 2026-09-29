@@ -11,7 +11,7 @@ public class MetricsForwarderFunction(
 {
     [Function("MetricsForwarder")]
     public async Task Run(
-        [TimerTrigger("0 */15 * * * *")] TimerInfo timer,
+        [TimerTrigger("%METRICS_POLL_SCHEDULE%")] TimerInfo timer,
         CancellationToken cancellationToken)
     {
         logger.LogInformation("MetricsForwarder triggered at {Time}", DateTimeOffset.UtcNow);
